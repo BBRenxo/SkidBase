@@ -11,7 +11,7 @@ namespace Execution
     std::queue<std::string> queue;
     std::mutex mutexex;
 
-    const uintptr_t caps = 0xFFFFFFFFFFFFFFFF;
+    uintptr_t caps = 0xFFFFFFFFFFFFFFFF;
 
     class BytecodeEncoder : public Luau::BytecodeEncoder
     {
@@ -48,9 +48,11 @@ namespace Execution
 
     void setprotocapabilities(Proto* proto, uintptr_t* capabilities)
     {
+        if (!proto) return;
         proto->userdata = capabilities;
         for (int i = 0; i < proto->sizep; ++i)
-            setprotocapabilities(proto->p[i], capabilities);
+            if (proto->p[i])
+                setprotocapabilities(proto->p[i], capabilities);
     }
 
     void setthreadcapabilities(lua_State* L, int level, uintptr_t capabilities, bool AddExecutorMark)
@@ -63,11 +65,20 @@ namespace Execution
 
     void execute(lua_State* L, const std::string& script)
     {
+		std::lock_guard<std::mutex> lock(Execution::mutexex);
         if (!L || script.empty())
             return;
 
         int originalTop = lua_gettop(L);
         lua_State* threadex = lua_newthread(L);
+        // checks please
+		if (!threadex)
+		{
+			lua_getglobal(L, "print");
+			lua_pushstring(L, "failed to create a thread");
+			lua_pcall(L, 1, 0, 0);
+			return;
+		}
         lua_pop(L, 1);
 
         luaL_sandboxthread(threadex);
@@ -84,6 +95,7 @@ namespace Execution
             lua_pcall(L, 1, 0, 0);
 
             lua_pop(threadex, 1);
+			lua_settop(L, originalTop);
             return;
         }
 
@@ -104,6 +116,7 @@ namespace Execution
             lua_pcall(L, 1, 0, 0);
 
             lua_pop(threadex, 1);
+			lua_settop(L, originalTop);
             return;
         }
 
