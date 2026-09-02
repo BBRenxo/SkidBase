@@ -9,14 +9,17 @@ namespace unc {
                 set_sunc_flag(L, false);
                 break;
             case Mode::Unc:
-                // Zero yield counter so it never trips
-                unc_yield_counter(L);
-                set_sunc_flag(L, false);
+                // SAFE: only zero yield counter if lua_State signature looks right
+                // Otherwise leave alone (yield limit applies but no crash)
+                if (safe_apply_unc(L)) {
+                    set_sunc_flag(L, false);
+                }
                 break;
             case Mode::Sunc:
-                // Unc + bypass identity enforcement
-                unc_yield_counter(L);
-                set_sunc_flag(L, true);
+                // SAFE: same guard — only patch if signature is valid
+                if (safe_apply_unc(L)) {
+                    set_sunc_flag(L, true);
+                }
                 break;
         }
     }

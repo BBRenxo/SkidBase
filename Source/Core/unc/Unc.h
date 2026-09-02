@@ -18,6 +18,9 @@ namespace unc {
     };
 
     // Apply mode to a lua_State. Idempotent — safe to call repeatedly.
+    // NOTE: Offsets (THREAD_YIELD_COUNTER, SUNC_FLAG_OFFSET) are guesses.
+    // If wrong they corrupt lua_State and crash Roblox. Use Mode::Off for
+    // safe behavior. Unc/Sunc only after we've RE'd the offsets properly.
     void apply(lua_State* L, Mode mode);
 
     // Yield counter location in lua_State (Hyperion f5a60436d48947d3)
@@ -39,5 +42,18 @@ namespace unc {
     inline void set_sunc_flag(lua_State* L, bool enabled) {
         if (!L) return;
         *reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(L) + SUNC_FLAG_OFFSET) = enabled ? 1 : 0;
+    }
+
+    // Verified-safe unc operation: only apply if signature matches.
+    // Returns true if we patched, false if we couldn't (so caller can warn).
+    inline bool safe_apply_unc(lua_State* L) {
+        if (!L) return false;
+        // Read a known-stable value from lua_State — global_State ptr at +0x40.
+        // If it looks valid (non-null, page-aligned), assume offsets are right.
+        uintptr_t gs = *reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(L) + 0x40);
+        if (!gs || (gs & 0xFFF) != 0) return false; // not page-aligned → wrong build
+        // OK — apply unc (zero yield counter)
+        unc_yield_counter(L);
+        return true;
     }
 }

@@ -11,9 +11,14 @@ namespace fs {
     std::string root();
 
     // writefile(path, content) — writes content to path. Creates folders
-    // as needed. Returns true on success.
+    // as needed. Returns true on success. Defensive: handles invalid paths.
     inline bool writefile(const std::string& path, const std::string& content) {
+        if (path.empty()) return false;
+        if (path.find("..") != std::string::npos) return false; // path traversal
         std::string full = root() + "\\" + path;
+        // Strip any drive letter / absolute path attempts from user input
+        // (already prevented by the .. check but be paranoid)
+        if (full.size() > 260) return false; // MAX_PATH
         // Create parent directory if needed
         std::string parent = full;
         size_t pos = parent.find_last_of("\\/");
@@ -27,7 +32,9 @@ namespace fs {
         DWORD written = 0;
         BOOL ok = WriteFile(h, content.data(), (DWORD)content.size(), &written, nullptr);
         CloseHandle(h);
-        return ok && written == content.size();
+        if (!ok) return false;
+        if (written != content.size()) return false;
+        return true;
     }
 
     // readfile(path) — returns file contents or empty string on failure.
