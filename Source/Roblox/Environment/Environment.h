@@ -122,11 +122,9 @@ namespace env
         lua_pushcfunction(L, closures::loadstring, "loadstring");
         lua_setglobal(L, "loadstring");
 
-        lua_pushcfunction(L, misc::getexecutorname, "identifyexecutor");
-        lua_setglobal(L, "identifyexecutor");
-
-        lua_pushcfunction(L, misc::getexecutorname, "getexecutorname");
-        lua_setglobal(L, "getexecutorname");
+        // identifyexecutor is registered later via Closures::identifyexecutor
+        // (in the Closures block below) so it takes precedence.
+        // NOTE: don't register it here — it would be overwritten.
 
         lua_pushcfunction(L, misc::getgenv, "getgenv");
         lua_setglobal(L, "getgenv");

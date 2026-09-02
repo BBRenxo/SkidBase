@@ -14,35 +14,49 @@
 
 namespace misc
 {
-    // Random executor name pool. Real executor names look like
-    // "Script-Ware V2", "Synapse X", "Fluxus", "Electron", etc.
-    // Random per-session + per-script-call so anti-cheat can't
-    // fingerprint based on name string.
+    // RenzBase stable identity. Returns the same name every call within a
+    // single script context (thread-local), different scripts may see
+    // different names. This is what most executor-detection scripts expect:
+    // a stable string they can compare with ==.
+    //
+    // The pool gives anti-cheat scripts multiple plausible hits — if they
+    // hardcode == "Fluxus" only, we return Fluxus. If they allowlist a
+    // list of executors, we cover several. If they check == "RenzBase"
+    // specifically, we return that too.
     inline const char* EXECUTOR_NAMES[] = {
-        "Fluxus", "Electron", "Trigon", "Wave", "AWP", "Script-Ware V2",
-        "Arsenal", "Solara", "Nihon", "Codex", "Velocity", "Arceus X"
+        "RenzBase", "Fluxus", "Electron", "Trigon", "Wave", "AWP",
+        "Script-Ware V2", "Arsenal", "Solara", "Nihon", "Codex",
+        "Velocity", "Arceus X"
     };
     inline const size_t NUM_NAMES = sizeof(EXECUTOR_NAMES) / sizeof(EXECUTOR_NAMES[0]);
 
+    // Per-call random pick. Anti-cheat fingerprinting protection — different
+    // calls return different names so a single observed value can't be used
+    // to block all RenzBase users.
     inline int getexecutorname(lua_State* L)
     {
-        // Pick a random name from the pool each call. AC that fingerprints
-        // a single name will see inconsistent values across calls.
         static std::mt19937 rng(std::random_device{}());
         const char* name = EXECUTOR_NAMES[rng() % NUM_NAMES];
         lua_pushstring(L, name);
         return 1;
     }
 
-    // getexecutorname() — same as above, but always returns the SAME
-    // name within one script context (uses thread-local storage).
-    // Useful when scripts check identifyexecutor multiple times.
+    // Stable pick: same script always sees the same name (uses lua_State*
+    // address as seed). Standard executor-detection scripts expect this.
     inline int getexecutorname_stable(lua_State* L) {
-        // Use script's identity context as the seed — same script always
-        // sees the same name, different scripts see different names.
         uintptr_t thread_id = reinterpret_cast<uintptr_t>(L);
         const char* name = EXECUTOR_NAMES[thread_id % NUM_NAMES];
         lua_pushstring(L, name);
+        return 1;
+    }
+
+    // Per-session stable: same name for the whole session, different sessions
+    // get different names. Combines randomness with stability.
+    inline int getexecutorname_session(lua_State* L) {
+        // Seed from session start time + process id (constant during session)
+        static std::mt19937 rng(GetTickCount() ^ GetCurrentProcessId());
+        static std::string session_name = EXECUTOR_NAMES[rng() % NUM_NAMES];
+        lua_pushstring(L, session_name.c_str());
         return 1;
     }
 

@@ -72,9 +72,26 @@ namespace closures
         return 1;
     }
 
+    // Executor identity. RenzBase returns a name from a pool of plausible
+    // executor names. Per-script context, the name is stable (so script
+    // comparison works), but across different scripts we can return
+    // different names. Also returns a version string for compatibility.
+    inline const char* EXECUTOR_NAMES_C[] = {
+        "RenzBase", "Fluxus", "Electron", "Trigon", "Wave", "AWP",
+        "Script-Ware V2", "Arsenal", "Solara", "Nihon", "Codex",
+        "Velocity", "Arceus X"
+    };
+    inline const size_t NUM_NAMES_C = sizeof(EXECUTOR_NAMES_C) / sizeof(EXECUTOR_NAMES_C[0]);
+
     inline int identifyexecutor(lua_State* L)
     {
-        lua_pushstring(L, "SkidBase");
+        // Stable per-script: use lua_State* address as seed so the same
+        // script sees the same name across calls. Different scripts in the
+        // same session may see different names — that's intentional, to
+        // make per-script fingerprinting impossible.
+        uintptr_t thread_id = reinterpret_cast<uintptr_t>(L);
+        const char* name = EXECUTOR_NAMES_C[thread_id % NUM_NAMES_C];
+        lua_pushstring(L, name);
         lua_pushstring(L, "1.0.0");
         return 2;
     }
