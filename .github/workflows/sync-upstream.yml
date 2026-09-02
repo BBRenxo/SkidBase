@@ -1,0 +1,45 @@
+name: Sync upstream SkidBase
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # every Monday at 6am UTC
+  workflow_dispatch:      # manual trigger
+
+jobs:
+  sync:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream
+        run: git remote add upstream https://github.com/RavageDevs/SkidBase.git
+
+      - name: Fetch upstream
+        run: git fetch upstream
+
+      - name: Check if upstream has new commits
+        id: check
+        run: |
+          LOCAL=$(git rev-parse HEAD)
+          UPSTREAM=$(git rev-parse upstream/main)
+          if [ "$LOCAL" != "$UPSTREAM" ]; then
+            echo "has_new=true" >> $GITHUB_OUTPUT
+            echo "Upstream has new commits"
+          else
+            echo "has_new=false" >> $GITHUB_OUTPUT
+            echo "Already up to date"
+          fi
+
+      - name: Create sync PR
+        if: steps.check.outputs.has_new == 'true'
+        run: |
+          git config user.name "renzbase-bot"
+          git config user.email "bot@renzbase.dev"
+          git checkout -b sync/upstream-${{ github.run_number }}
+          git merge upstream/main --no-edit -X theirs || git merge upstream/main --no-edit
+          git push origin HEAD
+          gh pr create --title "Sync upstream SkidBase" --body "Auto-sync from RavageDevs/SkidBase" --base main || echo "PR creation failed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
