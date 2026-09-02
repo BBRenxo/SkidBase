@@ -8,6 +8,7 @@
 #include "Libs/Input/Input.h"
 #include "Libs/Console/Console.h"
 #include "Libs/Drawing/Drawing.h"
+#include "Libs/Debug/Debug.h"
 #include "lua.h"
 #include "lualib.h"
 #include "lapi.h"
@@ -355,5 +356,40 @@ namespace env
 
         // Don't auto-execute any drawing library either — let user load it
         // via execute() if they want it.
+
+        // === Debug lib (real implementation — walks Luau Proto/Closure) ===
+        lua_getglobal(L, "debug");
+        if (!lua_istable(L, -1)) {
+            lua_newtable(L);
+            lua_setglobal(L, "debug");
+            lua_getglobal(L, "debug");
+        }
+        lua_pushcfunction(L, dbg::getconstant, "getconstant");
+        lua_setfield(L, -2, "getconstant");
+        lua_pushcfunction(L, dbg::getconstants, "getconstants");
+        lua_setfield(L, -2, "getconstants");
+        lua_pushcfunction(L, dbg::getupvalue, "getupvalue");
+        lua_setfield(L, -2, "getupvalue");
+        lua_pushcfunction(L, dbg::dbg_setupvalue, "setupvalue");
+        lua_setfield(L, -2, "setupvalue");
+        lua_pushcfunction(L, dbg::dbg_getproto, "getproto");
+        lua_setfield(L, -2, "getproto");
+        lua_pushcfunction(L, dbg::dbg_getprotos, "getprotos");
+        lua_setfield(L, -2, "getprotos");
+        lua_pushcfunction(L, dbg::getinfo, "getinfo");
+        lua_setfield(L, -2, "getinfo");
+        lua_pushcfunction(L, dbg::getstack, "getstack");
+        lua_setfield(L, -2, "getstack");
+        lua_pushcfunction(L, dbg::setstack, "setstack");
+        lua_setfield(L, -2, "setstack");
+        lua_pushcfunction(L, dbg::setconstant, "setconstant");
+        lua_setfield(L, -2, "setconstant");
+        lua_pushcfunction(L, dbg::getfenv, "getfenv");
+        lua_setfield(L, -2, "getfenv");
+        lua_pushcfunction(L, dbg::setfenv, "setfenv");
+        lua_setfield(L, -2, "setfenv");
+        lua_pushcfunction(L, dbg::traceback, "traceback");
+        lua_setfield(L, -2, "traceback");
+        lua_pop(L, 1);
     }
 }
