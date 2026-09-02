@@ -54,6 +54,22 @@ namespace env
         return 1;
     }
 
+    // extexecute_lua — Lua wrapper for Execution::extexecute.
+    // Takes a string (script source), pushes it onto the execution queue.
+    inline int extexecute_lua(lua_State* L) {
+        if (lua_gettop(L) < 1) {
+            luaL_error(L, "execute: expected 1 argument (script source)");
+            return 0;
+        }
+        const char* src = luaL_checkstring(L, 1);
+        if (!src || strlen(src) == 0) {
+            luaL_error(L, "execute: script source is empty");
+            return 0;
+        }
+        Execution::extexecute(std::string(src));
+        return 0;
+    }
+
     inline int index_hook(lua_State* L)
     {
         if (!isitourskidthread(L)) return original_index(L);
@@ -131,6 +147,18 @@ namespace env
 
         lua_pushcfunction(L, misc::setthreadidentity, "setidentity");
         lua_setglobal(L, "setidentity");
+
+        // === Execute (queue-based script runner) ===
+        // Queues a script for execution on the main SkidBase thread.
+        // Usage: execute("print('hello')")
+        lua_pushcfunction(L, env::extexecute_lua, "execute");
+        lua_setglobal(L, "execute");
+        lua_pushcfunction(L, env::extexecute_lua, "queuelua");
+        lua_setglobal(L, "queuelua");
+        lua_pushcfunction(L, env::extexecute_lua, "queue_script");
+        lua_setglobal(L, "queue_script");
+        lua_pushcfunction(L, env::extexecute_lua, "skid_execute");
+        lua_setglobal(L, "skid_execute");
 
         lua_pushcfunction(L, misc::gethui, "gethui");
         lua_setglobal(L, "gethui");
@@ -322,36 +350,10 @@ namespace env
         lua_pushcfunction(L, crypt_lib::getfunctionhash, "getfunctionhash");
         lua_setglobal(L, "getfunctionhash");
 
-        int top = lua_gettop(L);
-        lua_getglobal(L, "game");
-        
-        if (lua_istable(L, -1) || lua_isuserdata(L, -1))
-        {
-            if (luaL_getmetafield(L, -1, "__index"))
-            {
-                if (lua_type(L, -1) == LUA_TFUNCTION)
-                {
-                    Closure* cl = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
-                    original_index = cl->c.f;
-                    cl->c.f = index_hook;
-                }
-                lua_pop(L, 1);
-            }
-            
-            if (luaL_getmetafield(L, -1, "__namecall"))
-            {
-                if (lua_type(L, -1) == LUA_TFUNCTION)
-                {
-                    Closure* cl = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
-                    original_namecall = cl->c.f;
-                    cl->c.f = namecall_hook;
-                }
-                lua_pop(L, 1);
-            }
-        }
-        
-        lua_settop(L, top);
+        // Don't hook game's __index / __namecall — Hyperion detects this
+        // and crashes the process. Keep original behavior intact.
 
-        Execution::execute(L, "loadstring(game:HttpGet('https://raw.githubusercontent.com/RavageDevs/Extra-Libraries/refs/heads/main/Drawing.luau'))()");
+        // Don't auto-execute any drawing library either — let user load it
+        // via execute() if they want it.
     }
 }
