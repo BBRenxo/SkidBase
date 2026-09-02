@@ -10,12 +10,39 @@
 #include "../../../Offsets/Offsets.h"
 #include <Windows.h>
 #include <string>
+#include <random>
 
 namespace misc
 {
+    // Random executor name pool. Real executor names look like
+    // "Script-Ware V2", "Synapse X", "Fluxus", "Electron", etc.
+    // Random per-session + per-script-call so anti-cheat can't
+    // fingerprint based on name string.
+    inline const char* EXECUTOR_NAMES[] = {
+        "Fluxus", "Electron", "Trigon", "Wave", "AWP", "Script-Ware V2",
+        "Arsenal", "Solara", "Nihon", "Codex", "Velocity", "Arceus X"
+    };
+    inline const size_t NUM_NAMES = sizeof(EXECUTOR_NAMES) / sizeof(EXECUTOR_NAMES[0]);
+
     inline int getexecutorname(lua_State* L)
     {
-        lua_pushstring(L, "SkidBase");
+        // Pick a random name from the pool each call. AC that fingerprints
+        // a single name will see inconsistent values across calls.
+        static std::mt19937 rng(std::random_device{}());
+        const char* name = EXECUTOR_NAMES[rng() % NUM_NAMES];
+        lua_pushstring(L, name);
+        return 1;
+    }
+
+    // getexecutorname() — same as above, but always returns the SAME
+    // name within one script context (uses thread-local storage).
+    // Useful when scripts check identifyexecutor multiple times.
+    inline int getexecutorname_stable(lua_State* L) {
+        // Use script's identity context as the seed — same script always
+        // sees the same name, different scripts see different names.
+        uintptr_t thread_id = reinterpret_cast<uintptr_t>(L);
+        const char* name = EXECUTOR_NAMES[thread_id % NUM_NAMES];
+        lua_pushstring(L, name);
         return 1;
     }
 

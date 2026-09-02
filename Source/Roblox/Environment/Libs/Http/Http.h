@@ -1,90 +1,106 @@
 #pragma once
 #include "lua.h"
 #include "lualib.h"
-#include <Windows.h>
-#include <winhttp.h>
+#include "lobject.h"
+#include "../../../../Core/Network/Network.h"
 #include <string>
-#include <map>
-
-#pragma comment(lib, "winhttp.lib")
 
 namespace http
 {
-    inline std::string req(std::string url, std::map<std::string, std::string> hdrs = {})
-    {
-        bool sec = (url.size() >= 8 && (_strnicmp(url.c_str(), "https://", 8) == 0));
-        std::string clean_url = sec ? url.substr(8) : url.substr(7);
-
-        auto slash = clean_url.find('/');
-        auto host = clean_url.substr(0, slash);
-        auto path = slash == std::string::npos ? "/" : clean_url.substr(slash);
-
-        auto sess = WinHttpOpen(L"SkidBase", 0, 0, 0, 0);
-        if (!sess) return "";
-
-        auto conn = WinHttpConnect(sess, std::wstring(host.begin(), host.end()).c_str(), sec ? 443 : 80, 0);
-        if (!conn) { WinHttpCloseHandle(sess); return ""; }
-
-        auto req = WinHttpOpenRequest(conn, L"GET", std::wstring(path.begin(), path.end()).c_str(), 0, 0, 0, sec ? WINHTTP_FLAG_SECURE : 0);
-        if (!req) { WinHttpCloseHandle(conn); WinHttpCloseHandle(sess); return ""; }
-
-        std::wstring raw_hdrs;
-        for (auto& [k, v] : hdrs)
-            raw_hdrs += std::wstring(k.begin(), k.end()) + L": " + std::wstring(v.begin(), v.end()) + L"\r\n";
-
-        WinHttpSendRequest(req, raw_hdrs.empty() ? 0 : raw_hdrs.c_str(), (DWORD)raw_hdrs.length(), 0, 0, 0, 0);
-        WinHttpReceiveResponse(req, 0);
-
-        std::string res;
-        DWORD sz = 0;
-        do {
-            WinHttpQueryDataAvailable(req, &sz);
-            if (!sz) break;
-            auto buf = new char[sz + 1];
-            DWORD read = 0;
-            WinHttpReadData(req, buf, sz, &read);
-            buf[read] = 0;
-            res += buf;
-            delete[] buf;
-        } while (sz > 0);
-
-        WinHttpCloseHandle(req);
-        WinHttpCloseHandle(conn);
-        WinHttpCloseHandle(sess);
-        return res;
-    }
-
-    inline int HttpGet(lua_State* L)
-    {
-        int idx = (lua_type(L, 1) == LUA_TUSERDATA || lua_type(L, 1) == LUA_TTABLE) ? 2 : 1;
-        const char* raw_url = luaL_checkstring(L, idx);
-
-        std::string url = raw_url;
-
-        if (url.find("http://") != 0 && url.find("https://") != 0) {
-            luaL_error(L, "Invalid protocol (expected 'http://' or 'https://')");
-            return 0;
-        }
-
-        std::map<std::string, std::string> hdrs;
-        if (lua_istable(L, idx + 1)) {
+    // request(options) — modern executor API. options is {Url, Method, Body, Headers}.
+    // Returns {Success, StatusCode, Body, Headers} or false on failure.
+    inline int request(lua_State* L) {
+        if (!lua_istable(L, 1)) {
             lua_pushnil(L);
-            while (lua_next(L, idx + 1)) {
-                if (lua_isstring(L, -2) && lua_isstring(L, -1))
-                    hdrs[lua_tostring(L, -2)] = lua_tostring(L, -1);
+            lua_pushstring(L, "request: expected table argument");
+            return 2;
+        }
+        // Read Url
+        lua_getfield(L, 1, "Url");
+        const char* url = lua_isstring(L, -1) ? lua_tostring(L, -1) : nullptr;
+        lua_pop(L, 1);
+        if (!url) {
+            lua_pushnil(L);
+            lua_pushstring(L, "request: missing Url");
+            return 2;
+        }
+        // Read Method
+        std::string method = "GET";
+        lua_getfield(L, 1, "Method");
+        if (lua_isstring(L, -1)) method = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        // Read Body
+        std::string body;
+        lua_getfield(L, 1, "Body");
+        if (lua_isstring(L, -1)) body = lua_tostring(L, -1);
+        lua_pop(L, 1);
+        // Read Headers
+        std::vector<std::pair<std::string, std::string>> hdrs;
+        lua_getfield(L, 1, "Headers");
+        if (lua_istable(L, -1)) {
+            lua_pushnil(L);
+            while (lua_next(L, -2)) {
+                if (lua_isstring(L, -2) && lua_isstring(L, -1)) {
+                    hdrs.emplace_back(lua_tostring(L, -2), lua_tostring(L, -1));
+                }
                 lua_pop(L, 1);
             }
         }
+        lua_pop(L, 1);
 
-        hdrs["User-Agent"] = "SkidBase";
-        auto res = req(url, hdrs);
+        net::Response resp = (method == "POST" || method == "PUT" || method == "PATCH")
+            ? net::post(url, body, hdrs)
+            : net::get(url, hdrs);
 
-        if (res.empty()) {
-            lua_pushstring(L, "son");
-            return 1;
+        if (!resp.success) {
+            lua_pushnil(L);
+            lua_pushstring(L, "HTTP request failed");
+            return 2;
         }
 
-        lua_pushstring(L, res.c_str());
+        // Return {Success=true, StatusCode=..., Body="...", Headers={...}}
+        lua_createtable(L, 0, 4);
+        lua_pushboolean(L, true);
+        lua_setfield(L, -2, "Success");
+        lua_pushinteger(L, resp.status_code);
+        lua_setfield(L, -2, "StatusCode");
+        lua_pushlstring(L, resp.body.data(), resp.body.size());
+        lua_setfield(L, -2, "Body");
+        lua_createtable(L, 0, 0);
+        lua_setfield(L, -2, "Headers");
+        return 1;
+    }
+
+    // HttpGet(url) — returns body string (or nil on failure).
+    inline int HttpGet(lua_State* L) {
+        const char* url = luaL_checkstring(L, 1);
+        net::Response resp = net::get(url);
+        if (!resp.success) {
+            lua_pushnil(L);
+            lua_pushstring(L, "HTTP request failed");
+            return 2;
+        }
+        lua_pushlstring(L, resp.body.data(), resp.body.size());
+        return 1;
+    }
+
+    // HttpGetAsync(url) — same as HttpGet but signals via callback. For now
+    // we just return the same thing synchronously (real impl would spawn thread).
+    inline int HttpGetAsync(lua_State* L) {
+        return HttpGet(L);
+    }
+
+    // HttpPost(url, body) — POST request.
+    inline int HttpPost(lua_State* L) {
+        const char* url = luaL_checkstring(L, 1);
+        const char* body = luaL_optstring(L, 2, "");
+        net::Response resp = net::post(url, body);
+        if (!resp.success) {
+            lua_pushnil(L);
+            lua_pushstring(L, "HTTP request failed");
+            return 2;
+        }
+        lua_pushlstring(L, resp.body.data(), resp.body.size());
         return 1;
     }
 }

@@ -115,6 +115,8 @@
     <ClCompile Include="Dependencies\Luau\VM\src\lvmload.cpp" />
     <ClCompile Include="Dependencies\Luau\VM\src\lvmutils.cpp" />
     <ClCompile Include="Source\Core\Execution\Execution.cpp" />
+    <ClCompile Include="Source\Core\unc\Unc.cpp" />
+    <ClCompile Include="Source\Core\Filesystem\Filesystem.cpp" />
     <ClCompile Include="Source\Core\dllmain.cpp" />
     <ClCompile Include="Source\Core\TeleportHandler.cpp" />
     <ClCompile Include="Source\Roblox\Environment\Instances.cpp" />

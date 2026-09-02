@@ -3,6 +3,7 @@
 #include "lstate.h"
 #include "lobject.h"
 #include "lapi.h"
+#include "../unc/Unc.h"
 
 namespace Execution
 {
@@ -11,7 +12,25 @@ namespace Execution
     std::queue<std::string> queue;
     std::mutex mutexex;
 
-    uintptr_t caps = 0xFFFFFFFFFFFFFFFF;
+    // ROBLOX_CAP_* constants — only enable what scripts actually need.
+    // Setting ALL bits = instant executor detection. Set specific bits only.
+    //
+    // Level 8 = Plugin / Studio. Real Plugin caps are limited (no GetAsync,
+    // no WriteFile, etc). We set identity=8 + executor-mark bit + caps that
+    // Roblox's own scripts can use (loadstring, basic).
+    //
+    // For dangerous ops (WriteFile, ReadFile, HttpGet via HttpService, firetouchinterest)
+    // we use identity escalation per-call instead of blanket capabilities.
+    constexpr uint64_t CAP_PLUGIN_BASIC = 0x0000000000000100ULL;  // loadstring for plugin
+    constexpr uint64_t CAP_EXECUTOR_MARK = 0x0000000000000040ULL;  // marks threads as executor-owned
+    constexpr uint64_t CAP_WRITE_SCRIPT = 0x0000000000000008ULL;  // create script instances
+    constexpr uint64_t CAP_NETWORK = 0x0000000000000004ULL;  // network ops
+    constexpr uint64_t CAP_PLUGIN_FULL = 0x00000000000001FFULL;  // plugin-style full caps (used internally)
+
+    // External-facing caps: what we set on user script threads.
+    // Identity 8 + loadstring + write-script + executor-mark.
+    // NO: plugin (level 7), game admin (level 6), or full 0xFF..FF.
+    const uintptr_t caps = CAP_PLUGIN_BASIC | CAP_EXECUTOR_MARK | CAP_WRITE_SCRIPT | CAP_NETWORK;
 
     class BytecodeEncoder : public Luau::BytecodeEncoder
     {
@@ -82,7 +101,11 @@ namespace Execution
         lua_pop(L, 1);
 
         luaL_sandboxthread(threadex);
-        
+
+        // Apply unc/sunc to the new thread. Default to Unc (yield counter
+        // zeroed) — user can change via setunc/getsunc Lua API.
+        unc::apply(threadex, unc::Mode::Unc);
+
         setthreadcapabilities(threadex, 8, caps, false);
 
         std::string bytecode = aexecute(script);

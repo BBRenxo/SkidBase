@@ -4,11 +4,20 @@
 #include "Libs/Misc/Misc.h"
 #include "Libs/Crypt/Crypt.h"
 #include "Libs/Metatable/Metatable.h"
+#include "Libs/Filesystem/Filesystem.h"
+#include "Libs/Input/Input.h"
+#include "Libs/Console/Console.h"
+#include "Libs/Drawing/Drawing.h"
+#include "lua.h"
+#include "lualib.h"
 #include "lapi.h"
 #include "lstate.h"
 #include "lobject.h"
 #include "lgc.h"
 #include "../../Core/Execution/Execution.h"
+#include "../../Core/unc/Unc.h"
+#include "../../Core/Input/Input.h"
+#include "../../Core/Filesystem/Filesystem.h"
 #include <Windows.h>
 #include <string>
 #include <unordered_set>
@@ -21,6 +30,29 @@ namespace env
 {
     inline lua_CFunction original_index = nullptr;
     inline lua_CFunction original_namecall = nullptr;
+
+    // setunc(mode) — mode is "off" / "unc" / "sunc"
+    // Sets unc/sunc on the current Lua thread.
+    inline int setunc(lua_State* L) {
+        const char* mode = luaL_checkstring(L, 1);
+        if (!strcmp(mode, "off"))      unc::apply(L, unc::Mode::Off);
+        else if (!strcmp(mode, "unc")) unc::apply(L, unc::Mode::Unc);
+        else if (!strcmp(mode, "sunc")) unc::apply(L, unc::Mode::Sunc);
+        else luaL_error(L, "setunc: mode must be 'off', 'unc', or 'sunc'");
+        return 0;
+    }
+
+    // getsunc() — returns current unc mode for current thread.
+    inline int getsunc(lua_State* L) {
+        uint32_t sunc_flag = *reinterpret_cast<uint32_t*>(
+            reinterpret_cast<uintptr_t>(L) + unc::SUNC_FLAG_OFFSET);
+        uintptr_t yield = *reinterpret_cast<uintptr_t*>(
+            reinterpret_cast<uintptr_t>(L) + unc::THREAD_YIELD_COUNTER);
+        if (sunc_flag)        lua_pushstring(L, "sunc");
+        else if (yield == UINTPTR_MAX) lua_pushstring(L, "unc");
+        else                   lua_pushstring(L, "off");
+        return 1;
+    }
 
     inline int index_hook(lua_State* L)
     {
@@ -138,6 +170,106 @@ namespace env
 
         lua_pushcfunction(L, closures::isexecutorclosure, "checkclosure");
         lua_setglobal(L, "checkclosure");
+
+        // unc / sunc — executor yield limit bypass
+        lua_pushcfunction(L, env::setunc, "setunc");
+        lua_setglobal(L, "setunc");
+        lua_pushcfunction(L, env::getsunc, "getsunc");
+        lua_setglobal(L, "getsunc");
+
+        // === FileSystem ===
+        lua_pushcfunction(L, filesys::writefile, "writefile");
+        lua_setglobal(L, "writefile");
+        lua_pushcfunction(L, filesys::readfile, "readfile");
+        lua_setglobal(L, "readfile");
+        lua_pushcfunction(L, filesys::appendfile, "appendfile");
+        lua_setglobal(L, "appendfile");
+        lua_pushcfunction(L, filesys::loadfile, "loadfile");
+        lua_setglobal(L, "loadfile");
+        lua_pushcfunction(L, filesys::delfile, "delfile");
+        lua_setglobal(L, "delfile");
+        lua_pushcfunction(L, filesys::makefolder, "makefolder");
+        lua_setglobal(L, "makefolder");
+        lua_pushcfunction(L, filesys::listfiles, "listfiles");
+        lua_setglobal(L, "listfiles");
+        lua_pushcfunction(L, filesys::isfolder, "isfolder");
+        lua_setglobal(L, "isfolder");
+        lua_pushcfunction(L, filesys::isfile, "isfile");
+        lua_setglobal(L, "isfile");
+        lua_pushcfunction(L, filesys::delfolder, "delfolder");
+        lua_setglobal(L, "delfolder");
+        lua_pushcfunction(L, filesys::getcustomasset, "getcustomasset");
+        lua_setglobal(L, "getcustomasset");
+
+        // === Network ===
+        lua_pushcfunction(L, http::request, "request");
+        lua_setglobal(L, "request");
+        lua_pushcfunction(L, http::HttpGet, "HttpGet");
+        lua_setglobal(L, "HttpGet");
+        lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
+        lua_setglobal(L, "HttpGetAsync");
+        lua_pushcfunction(L, http::HttpPost, "HttpPost");
+        lua_setglobal(L, "HttpPost");
+
+        // === Input ===
+        lua_pushcfunction(L, inp::keypress, "keypress");
+        lua_setglobal(L, "keypress");
+        lua_pushcfunction(L, inp::keyrelease, "keyrelease");
+        lua_setglobal(L, "keyrelease");
+        lua_pushcfunction(L, inp::keyhold, "keyhold");
+        lua_setglobal(L, "keyhold");
+        lua_pushcfunction(L, inp::mouse1click, "mouse1click");
+        lua_setglobal(L, "mouse1click");
+        lua_pushcfunction(L, inp::mouse1press, "mouse1press");
+        lua_setglobal(L, "mouse1press");
+        lua_pushcfunction(L, inp::mouse1release, "mouse1release");
+        lua_setglobal(L, "mouse1release");
+        lua_pushcfunction(L, inp::mouse2click, "mouse2click");
+        lua_setglobal(L, "mouse2click");
+        lua_pushcfunction(L, inp::mouse2press, "mouse2press");
+        lua_setglobal(L, "mouse2press");
+        lua_pushcfunction(L, inp::mouse2release, "mouse2release");
+        lua_setglobal(L, "mouse2release");
+        lua_pushcfunction(L, inp::mousemoveabs, "mousemoveabs");
+        lua_setglobal(L, "mousemoveabs");
+        lua_pushcfunction(L, inp::mousemoverel, "mousemoverel");
+        lua_setglobal(L, "mousemoverel");
+        lua_pushcfunction(L, inp::mousescroll, "mousescroll");
+        lua_setglobal(L, "mousescroll");
+        lua_pushcfunction(L, inp::isrbxactive, "isrbxactive");
+        lua_setglobal(L, "isrbxactive");
+        lua_pushcfunction(L, inp::isrbxactive, "isgameactive");
+        lua_setglobal(L, "isgameactive");
+
+        // === Console ===
+        lua_pushcfunction(L, console::rconsolecreate, "rconsolecreate");
+        lua_setglobal(L, "rconsolecreate");
+        lua_pushcfunction(L, console::rconsoleclose, "rconsoleclose");
+        lua_setglobal(L, "rconsoleclose");
+        lua_pushcfunction(L, console::rconsoleprint, "rconsoleprint");
+        lua_setglobal(L, "rconsoleprint");
+        lua_pushcfunction(L, console::rconsoleprint, "rconsoleprintln");
+        lua_setglobal(L, "rconsoleprintln");
+        lua_pushcfunction(L, console::rconsolewarn, "rconsolewarn");
+        lua_setglobal(L, "rconsolewarn");
+        lua_pushcfunction(L, console::rconsoleerror, "rconsoleerror");
+        lua_setglobal(L, "rconsoleerror");
+        lua_pushcfunction(L, console::rconsoleinfo, "rconsoleinfo");
+        lua_setglobal(L, "rconsoleinfo");
+        lua_pushcfunction(L, console::rconsoleclear, "rconsoleclear");
+        lua_setglobal(L, "rconsoleclear");
+        lua_pushcfunction(L, console::rconsolename, "rconsolename");
+        lua_setglobal(L, "rconsolename");
+        lua_pushcfunction(L, console::rconsolename, "rconsoletitle");
+        lua_setglobal(L, "rconsoletitle");
+
+        // === Drawing ===
+        drawing::setup(L);
+        lua_pushcfunction(L, drawing::cleardrawcache, "cleardrawcache");
+        lua_setglobal(L, "cleardrawcache");
+
+        // === Debug lib === (debug.h removed for now - Luau API mismatch)
+        // Skipped until proper bytecode parser is written.
 
         // metatable lib
         lua_pushcfunction(L, metatable::getrawmetatable, "getrawmetatable");
