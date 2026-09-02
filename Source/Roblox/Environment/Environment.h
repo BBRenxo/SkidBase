@@ -8,7 +8,6 @@
 #include "Libs/Input/Input.h"
 #include "Libs/Console/Console.h"
 #include "Libs/Drawing/Drawing.h"
-#include "Libs/Debug/Debug.h"
 #include "lua.h"
 #include "lualib.h"
 #include "lapi.h"
@@ -349,45 +348,39 @@ namespace env
         lua_pushcfunction(L, crypt_lib::getfunctionhash, "getfunctionhash");
         lua_setglobal(L, "getfunctionhash");
 
-        // Don't hook game's __index / __namecall — Hyperion detects this
-        // and crashes the process. Keep original behavior intact.
+        int top = lua_gettop(L);
+        lua_getglobal(L, "game");
 
-        // Don't auto-execute any drawing library either — let user load it
-        // via execute() if they want it.
+        if (lua_istable(L, -1) || lua_isuserdata(L, -1))
+        {
+            if (luaL_getmetafield(L, -1, "__index"))
+            {
+                if (lua_type(L, -1) == LUA_TFUNCTION)
+                {
+                    Closure* cl = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
+                    original_index = cl->c.f;
+                    cl->c.f = index_hook;
+                }
+                lua_pop(L, 1);
+            }
 
-        // === Debug lib (real implementation — walks Luau Proto/Closure) ===
-        lua_getglobal(L, "debug");
-        if (!lua_istable(L, -1)) {
-            lua_newtable(L);
-            lua_setglobal(L, "debug");
-            lua_getglobal(L, "debug");
+            if (luaL_getmetafield(L, -1, "__namecall"))
+            {
+                if (lua_type(L, -1) == LUA_TFUNCTION)
+                {
+                    Closure* cl = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
+                    original_namecall = cl->c.f;
+                    cl->c.f = namecall_hook;
+                }
+                lua_pop(L, 1);
+            }
         }
-        lua_pushcfunction(L, dbg::getconstant, "getconstant");
-        lua_setfield(L, -2, "getconstant");
-        lua_pushcfunction(L, dbg::getconstants, "getconstants");
-        lua_setfield(L, -2, "getconstants");
-        lua_pushcfunction(L, dbg::getupvalue, "getupvalue");
-        lua_setfield(L, -2, "getupvalue");
-        lua_pushcfunction(L, dbg::dbg_setupvalue, "setupvalue");
-        lua_setfield(L, -2, "setupvalue");
-        lua_pushcfunction(L, dbg::dbg_getproto, "getproto");
-        lua_setfield(L, -2, "getproto");
-        lua_pushcfunction(L, dbg::dbg_getprotos, "getprotos");
-        lua_setfield(L, -2, "getprotos");
-        lua_pushcfunction(L, dbg::getinfo, "getinfo");
-        lua_setfield(L, -2, "getinfo");
-        lua_pushcfunction(L, dbg::getstack, "getstack");
-        lua_setfield(L, -2, "getstack");
-        lua_pushcfunction(L, dbg::setstack, "setstack");
-        lua_setfield(L, -2, "setstack");
-        lua_pushcfunction(L, dbg::setconstant, "setconstant");
-        lua_setfield(L, -2, "setconstant");
-        lua_pushcfunction(L, dbg::getfenv, "getfenv");
-        lua_setfield(L, -2, "getfenv");
-        lua_pushcfunction(L, dbg::setfenv, "setfenv");
-        lua_setfield(L, -2, "setfenv");
-        lua_pushcfunction(L, dbg::traceback, "traceback");
-        lua_setfield(L, -2, "traceback");
-        lua_pop(L, 1);
+
+        lua_settop(L, top);
+
+        // REMOVED: loadstring(game:HttpGet(...))() — this was crashing Roblox
+        // (loadstring disabled in production Roblox since 2023, HttpGet isn't
+        // a real Roblox API). If users want extra libs they should load them
+        // via execute() instead.
     }
 }
