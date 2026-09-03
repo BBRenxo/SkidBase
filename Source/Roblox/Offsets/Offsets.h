@@ -20,7 +20,7 @@ namespace Main {
     }
 
     namespace Miscellaneous {
-        inline const uintptr_t FakeDatamodelPOINTER = Rebase(0x8CA9CC8);
+        inline const uintptr_t FakeDatamodelPOINTER = Rebase(0x8d22868);
         inline const uintptr_t LuaNil = Rebase(0x62f7418);
         inline const uintptr_t LuaDummy = Rebase(0x62f6ec8);
         inline const uintptr_t TargetFPS = Rebase(0x80993c8);

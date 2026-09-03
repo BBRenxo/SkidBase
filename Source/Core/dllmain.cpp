@@ -30,12 +30,13 @@ void connection(lua_State* L) {
     char pipeName[] = "\\\\.\\pipe\\RenzBase";
 
     // === Thread 1: named pipe loop ===
+    // PIPE_TYPE_BYTE mode so clients don't need to set message mode.
     auto pipe_thread = std::thread([L, pipeName]() {
         while (true) {
             HANDLE hPipe = CreateNamedPipeA(
                 pipeName,
                 PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
                 4096, 4096, 0, nullptr);
 
