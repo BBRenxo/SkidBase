@@ -51,6 +51,33 @@ namespace Execution
 
     std::string aexecute(std::string source)
     {
+        // === Preprocess script source ===
+        // Replace game:HttpGet(...) with HttpGet(...) — Roblox's built-in
+        // game:HttpGet returns an HttpRequest Instance, not a string, which
+        // breaks loadstring(game:HttpGet(url))(). Our HttpGet returns a
+        // string and works the same way. Same for HttpGetAsync, HttpPost,
+        // and request.
+        size_t pos = 0;
+        while ((pos = source.find("game:HttpGet", pos)) != std::string::npos) {
+            source.replace(pos, 13, "HttpGet");
+            pos += 8;
+        }
+        pos = 0;
+        while ((pos = source.find("game:HttpGetAsync", pos)) != std::string::npos) {
+            source.replace(pos, 18, "HttpGetAsync");
+            pos += 13;
+        }
+        pos = 0;
+        while ((pos = source.find("game:HttpPost", pos)) != std::string::npos) {
+            source.replace(pos, 14, "HttpPost");
+            pos += 9;
+        }
+        pos = 0;
+        while ((pos = source.find("game:request", pos)) != std::string::npos) {
+            source.replace(pos, 12, "request");
+            pos += 7;
+        }
+
         auto bytecide = BytecodeEncoder();
         static const char* globalz[] = { "Game", "Workspace", "game", "plugin", "script", "shared", "workspace", "_G", "_ENV", nullptr };
 
@@ -107,6 +134,10 @@ namespace Execution
         unc::apply(threadex, unc::Mode::Unc);
 
         setthreadcapabilities(threadex, 8, caps, false);
+
+        // === Preprocess script source ===
+        // game:HttpGet etc. are rewritten to HttpGet etc. by aexecute(),
+        // which is called below. No need to duplicate the work here.
 
         std::string bytecode = aexecute(script);
         if (luau_load(threadex, "", bytecode.c_str(), bytecode.length(), NULL) != LUA_OK)
