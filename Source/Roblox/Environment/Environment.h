@@ -72,8 +72,8 @@ namespace env
 
     inline int index_hook(lua_State* L)
     {
-        if (!isitourskidthread(L)) return original_index(L);
-
+        // Check key FIRST regardless of thread — we want HttpGet etc.
+        // overridden even on Roblox's game threads.
         if (lua_isstring(L, 2)) {
             const char* key = lua_tostring(L, 2);
 
@@ -89,6 +89,9 @@ namespace env
                 return 1;
             }
         }
+
+        // For non-HttpGet keys, delegate to original (gated by thread check)
+        if (!isitourskidthread(L)) return original_index(L);
 
         if (original_index)
             return original_index(L);
