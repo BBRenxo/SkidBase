@@ -78,6 +78,19 @@ namespace Execution
             pos += 7;
         }
 
+        // === Strip non-ASCII bytes ===
+        // Luau's loadstring rejects sources with bytes > 127 (UTF-8 emoji etc.).
+        // Replace them with spaces so the script remains syntactically valid.
+        for (size_t i = 0; i < source.size(); ) {
+            unsigned char c = (unsigned char)source[i];
+            if (c < 0x80) { i++; continue; }
+            if (c >= 0xC0 && c < 0xE0 && i + 1 < source.size()) { source[i] = ' '; source[i+1] = ' '; i += 2; continue; }
+            if (c >= 0xE0 && c < 0xF0 && i + 2 < source.size()) { source[i] = ' '; source[i+1] = ' '; source[i+2] = ' '; i += 3; continue; }
+            if (c >= 0xF0 && i + 3 < source.size()) { source[i] = ' '; source[i+1] = ' '; source[i+2] = ' '; source[i+3] = ' '; i += 4; continue; }
+            source[i] = ' ';
+            i++;
+        }
+
         auto bytecide = BytecodeEncoder();
         static const char* globalz[] = { "Game", "Workspace", "game", "plugin", "script", "shared", "workspace", "_G", "_ENV", nullptr };
 
