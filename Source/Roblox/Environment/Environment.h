@@ -31,6 +31,22 @@ namespace env
     inline lua_CFunction original_index = nullptr;
     inline lua_CFunction original_namecall = nullptr;
 
+    // Static proxy __index for the game replacement. Looks up keys on the
+    // real game userdata (saved in registry).
+    static int proxy_index_static(lua_State* L) {
+        // stack: proxy_table, key
+        int ref = (int)lua_tointeger(L, lua_upvalueindex(1));
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);  // push realgame
+        lua_pushvalue(L, 2);                     // push key
+        lua_gettable(L, -2);                     // realgame[key]
+        if (lua_isnil(L, -1)) {
+            lua_pop(L, 1);
+            lua_pushnil(L);
+        }
+        lua_remove(L, -2);  // pop realgame
+        return 1;
+    }
+
     // setunc(mode) — mode is "off" / "unc" / "sunc"
     // Sets unc/sunc on the current Lua thread.
     inline int setunc(lua_State* L) {
@@ -367,31 +383,51 @@ namespace env
 
         if (lua_istable(L, -1) || lua_isuserdata(L, -1))
         {
-            // Patch __index on game's metatable so game:HttpGet(url)
-            // returns our function instead of Roblox's HttpRequest instance.
-            // game's __index can be either a function (Lua-side metamethod)
-            // OR a table (Roblox-side property lookup). Handle both.
+            // === game:HttpGet fix ===
+            // Replace `game` with a proxy table that has HttpGet/HttpGetAsync/
+            // HttpPost/request pointing to OUR impl. The proxy's __index
+            // delegates everything else to the real game userdata.
+            // This is the only way to make game:HttpGet(url) return a string
+            // because Roblox's C-side instance lookup bypasses __index hooks.
+
+            // Save real game to registry
+            lua_pushvalue(L, -1);  // dup game
+            int realgame_ref = lua_ref(L, LUA_REGISTRYINDEX);
+            lua_pop(L, 1);  // pop dup
+
+            // Pop real game, build proxy
+            lua_pop(L, 1);
+
+            // Proxy table
+            lua_createtable(L, 0, 8);
+
+            // __index upvalue: realgame_ref
+            lua_pushinteger(L, realgame_ref);
+            lua_pushcclosure(L, (lua_CFunction)proxy_index_static, "proxy_index", 1);
+            lua_setfield(L, -2, "__index");
+
+            // Add our methods to proxy
+            lua_pushcfunction(L, http::HttpGet, "HttpGet");
+            lua_setfield(L, -2, "HttpGet");
+            lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
+            lua_setfield(L, -2, "HttpGetAsync");
+            lua_pushcfunction(L, http::HttpPost, "HttpPost");
+            lua_setfield(L, -2, "HttpPost");
+            lua_pushcfunction(L, http::request, "request");
+            lua_setfield(L, -2, "request");
+
+            // Set proxy as global game
+            lua_setglobal(L, "game");
+
+            // Now also patch __index and __namecall on the PROXY's metatable
+            lua_getglobal(L, "game");  // push proxy
             if (luaL_getmetafield(L, -1, "__index"))
             {
                 if (lua_type(L, -1) == LUA_TFUNCTION)
                 {
-                    // __index is a function — wrap it with our hook
                     Closure* cl = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
                     original_index = cl->c.f;
                     cl->c.f = index_hook;
-                }
-                else if (lua_istable(L, -1))
-                {
-                    // __index is a table — set our HttpGet directly on it
-                    // so it gets found BEFORE any built-in property
-                    lua_pushcfunction(L, http::HttpGet, "HttpGet");
-                    lua_setfield(L, -2, "HttpGet");
-                    lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
-                    lua_setfield(L, -2, "HttpGetAsync");
-                    lua_pushcfunction(L, http::HttpPost, "HttpPost");
-                    lua_setfield(L, -2, "HttpPost");
-                    lua_pushcfunction(L, http::request, "request");
-                    lua_setfield(L, -2, "request");
                 }
                 lua_pop(L, 1);
             }
