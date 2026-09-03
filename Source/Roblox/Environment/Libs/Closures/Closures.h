@@ -25,45 +25,65 @@ namespace closures
             const char* src = nullptr;
             std::string stringBuf;
 
+            auto extractStringFromInstance = [&](int idx) -> bool {
+                // Try multiple ways to pull a string from a Roblox Instance.
+                // 1. Try rawget on the Instance for fields like Source, Body,
+                //    ResponseBody. rawget bypasses __index so we can read fields
+                //    that are direct table members.
+                static const char* fieldNames[] = {
+                    "Source", "Body", "ResponseBody", "BodyString",
+                    "Result", "Value", "Content", "String",
+                    nullptr
+                };
+                for (int f = 0; fieldNames[f]; ++f) {
+                    lua_getfield(L, idx, fieldNames[f]);
+                    if (lua_isstring(L, -1)) {
+                        stringBuf = lua_tostring(L, -1);
+                        src = stringBuf.c_str();
+                        lua_pop(L, 1);
+                        return true;
+                    }
+                    lua_pop(L, 1);
+                }
+
+                // 2. Try method calls. Roblox's Instance methods require
+                //    __namecall, not __index lookup. Use pcall to invoke via
+                //    rawget + pcall.
+                static const char* methodNames[] = {
+                    "GetString", "GetBody", "GetResponseBody", "GetContent",
+                    "ToString", "GetText", "GetValue",
+                    nullptr
+                };
+                for (int m = 0; methodNames[m]; ++m) {
+                    lua_getfield(L, idx, methodNames[m]);
+                    if (lua_isfunction(L, -1)) {
+                        lua_pushvalue(L, idx);
+                        if (lua_pcall(L, 1, 1, 0) == LUA_OK) {
+                            if (lua_isstring(L, -1)) {
+                                stringBuf = lua_tostring(L, -1);
+                                src = stringBuf.c_str();
+                                lua_pop(L, 1);
+                                return true;
+                            }
+                            lua_pop(L, 1);
+                        } else {
+                            lua_pop(L, 1);  // error message
+                        }
+                    } else {
+                        lua_pop(L, 1);
+                    }
+                }
+
+                return false;
+            };
+
             if (lua_isstring(L, 1))
             {
                 src = lua_tostring(L, 1);
             }
             else if (lua_isuserdata(L, 1))
             {
-                // Try to call :GetString() or read .Source on the Instance.
-                lua_getfield(L, 1, "GetString");
-                if (lua_isfunction(L, -1))
-                {
-                    lua_pushvalue(L, 1);
-                    if (lua_pcall(L, 1, 1, 0) == LUA_OK && lua_isstring(L, -1))
-                    {
-                        stringBuf = lua_tostring(L, -1);
-                        src = stringBuf.c_str();
-                    }
-                    lua_pop(L, 1);
-                }
-                if (!src)
-                {
-                    lua_getfield(L, 1, "Source");
-                    if (lua_isstring(L, -1))
-                    {
-                        stringBuf = lua_tostring(L, -1);
-                        src = stringBuf.c_str();
-                    }
-                    lua_pop(L, 1);
-                }
-                if (!src)
-                {
-                    lua_getfield(L, 1, "Body");
-                    if (lua_isstring(L, -1))
-                    {
-                        stringBuf = lua_tostring(L, -1);
-                        src = stringBuf.c_str();
-                    }
-                    lua_pop(L, 1);
-                }
-                if (!src)
+                if (!extractStringFromInstance(1))
                 {
                     luaL_error(L, "loadstring: argument 1 has no string representation");
                     return 0;

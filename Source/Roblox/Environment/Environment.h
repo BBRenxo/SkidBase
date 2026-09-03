@@ -238,14 +238,121 @@ namespace env
         lua_setglobal(L, "getcustomasset");
 
         // === Network ===
-        lua_pushcfunction(L, http::request, "request");
-        lua_setglobal(L, "request");
-        lua_pushcfunction(L, http::HttpGet, "HttpGet");
-        lua_setglobal(L, "HttpGet");
-        lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
-        lua_setglobal(L, "HttpGetAsync");
-        lua_pushcfunction(L, http::HttpPost, "HttpPost");
-        lua_setglobal(L, "HttpPost");
+                lua_pushcfunction(L, http::request, "request");
+                lua_setglobal(L, "request");
+                lua_pushcfunction(L, http::HttpGet, "HttpGet");
+                lua_setglobal(L, "HttpGet");
+                lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
+                lua_setglobal(L, "HttpGetAsync");
+                lua_pushcfunction(L, http::HttpPost, "HttpPost");
+                lua_setglobal(L, "HttpPost");
+
+                // === Proxy `game` global ===
+                // Most modern scripts use game:HttpGet(url) or game:HttpGetAsync(url).
+                // Roblox's built-in :HttpGet returns an HttpRequest Instance, not a
+                // string, which breaks loadstring(game:HttpGet(url))().
+                //
+                // We can't easily override game's userdata metatable (Roblox's
+                // __index chain goes deep and shadows our overrides). Instead, we
+                // REPLACE the global `game` with a proxy table that:
+                //   1. Has HttpGet/HttpGetAsync/HttpPost/HttpService:WaitForChild
+                //      etc. mapped to OUR C functions.
+                //   2. Falls through __index to the real `game` (cached in upvalue)
+                //      for everything else (GetService, Players, Workspace, etc.)
+                //
+                // After this, game:HttpGet(url) → our http::HttpGet(url) → returns
+                // a string directly. loadstring(game:HttpGet(url))() works.
+                //
+                // Save the real game in an upvalue: close over `original_game` via
+                // a C closure. To keep it simple we register a metatable __index
+                // fallback function that uses the Lua registry to find the real game.
+
+                // 1. Save the real game to the registry so the metatable __index
+                //    can find it later.
+                lua_getglobal(L, "game");
+                if (lua_isnil(L, -1))
+                {
+                    // No game global yet — fall back to RAIIU_GLOBALSINDEX
+                    lua_pushvalue(L, LUA_GLOBALSINDEX);
+                }
+                lua_setfield(L, LUA_REGISTRYINDEX, "__renzbase_real_game");
+
+                // 2. Create the proxy table
+                lua_newtable(L);
+
+                // 3. Set HttpGet/HttpGetAsync/HttpPost on the proxy so game:HttpGet
+                //    routes to OUR C functions.
+                lua_pushcfunction(L, http::HttpGet, "HttpGet");
+                lua_setfield(L, -2, "HttpGet");
+                lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
+                lua_setfield(L, -2, "HttpGetAsync");
+                lua_pushcfunction(L, http::HttpPost, "HttpPost");
+                lua_setfield(L, -2, "HttpPost");
+
+                // 4. Set __index metatable to a function that falls back to the
+                //    real game. Any unknown key (like GetService, Players, etc.)
+                //    goes through to the real game's __index chain.
+                lua_newtable(L);  // metatable
+
+                // __index function: receives the proxy table and the key, returns
+                // the value from the real game via rawget chain.
+                lua_pushcfunction(L, [](lua_State* L) -> int {
+                    // upvalue 1 = real game (saved in registry)
+                    lua_getfield(L, LUA_REGISTRYINDEX, "__renzbase_real_game");
+                    if (lua_isnil(L, -1)) {
+                        lua_pop(L, 1);
+                        return 0;
+                    }
+                    lua_pushvalue(L, 2);  // key
+                    lua_rawget(L, -2);    // real_game[key]
+                    lua_remove(L, -2);    // remove real_game, leave result
+                    return 1;
+                }, "proxy_index");
+                lua_setfield(L, -2, "__index");
+
+                lua_pushcfunction(L, [](lua_State* L) -> int {
+                    // __newindex: also fall back to the real game so writes work.
+                    lua_getfield(L, LUA_REGISTRYINDEX, "__renzbase_real_game");
+                    if (lua_isnil(L, -1)) {
+                        lua_pop(L, 1);
+                        return 0;
+                    }
+                    lua_pushvalue(L, 2);  // key
+                    lua_pushvalue(L, 3);  // value
+                    lua_rawset(L, -3);    // real_game[key] = value
+                    lua_pop(L, 1);        // remove real_game
+                    return 0;
+                }, "proxy_newindex");
+                lua_setfield(L, -2, "__newindex");
+
+                // Also handle __namecall so game:Method() calls work too
+                lua_pushcfunction(L, [](lua_State* L) -> int {
+                    // upvalue: __namecall gets the method name on stack at position 2
+                    lua_getfield(L, LUA_REGISTRYINDEX, "__renzbase_real_game");
+                    if (lua_isnil(L, -1)) {
+                        lua_pop(L, 1);
+                        return 0;
+                    }
+                    // The proxy game's __namecall — pass through to real game's
+                    // __namecall by replacing self with real game.
+                    lua_pushvalue(L, lua_upvalueindex(1));
+                    lua_replace(L, 1);  // replace self at position 1 with real_game
+                    // Now invoke real game's __namecall by calling rawget +
+                    // recursing. Simpler: call as method via lua_pcall.
+                    lua_pushvalue(L, 2);  // method name
+                    lua_pushvalue(L, lua_upvalueindex(1));  // real_game as self
+                    for (int i = 3; i <= lua_gettop(L); i++) {
+                        lua_pushvalue(L, i);
+                    }
+                    lua_pcall(L, lua_gettop(L) - 3, LUA_MULTRET, 0);
+                    return lua_gettop(L);
+                }, "proxy_namecall");
+                lua_setfield(L, -2, "__namecall");
+
+                lua_setmetatable(L, -2);  // attach metatable to proxy table
+
+                // 5. Replace the global `game` with our proxy
+                lua_setglobal(L, "game");
 
         // Note: HttpGet/HttpGetAsync/HttpPost are now overridden via the
         // game's metatable __index patch below (in the same Register()
