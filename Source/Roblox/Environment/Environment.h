@@ -77,10 +77,17 @@ namespace env
         if (lua_isstring(L, 2)) {
             const char* key = lua_tostring(L, 2);
 
-            // HttpGet/HttpGetAsync are intercepted via namecall_hook so they
-            // can override Roblox's built-in HttpGet. Don't add them as index
-            // values — that would shadow Roblox's built-in HttpGet which returns
-            // a Roblox instance instead of a string.
+            // Override HttpGet/HttpGetAsync/HttpPost on any Roblox Instance
+            // (game, workspace, etc.) so game:HttpGet(url) returns a string
+            // instead of an HttpRequest Instance.
+            if (key && (strcmp(key, "HttpGet") == 0 || strcmp(key, "HttpGetAsync") == 0)) {
+                lua_pushcfunction(L, http::HttpGet, key);
+                return 1;
+            }
+            if (key && strcmp(key, "HttpPost") == 0) {
+                lua_pushcfunction(L, http::HttpPost, "HttpPost");
+                return 1;
+            }
         }
 
         if (original_index)
@@ -94,10 +101,16 @@ namespace env
 
         const char* key = L->namecall ? getstr(L->namecall) : nullptr;
         if (key) {
+            // IMPORTANT: we check FIRST and only fall through if our
+            // override doesn't apply. Roblox's __index chain would
+            // normally find the built-in HttpGet method, but we want
+            // to override it entirely.
             if (strcmp(key, "HttpGet") == 0 || strcmp(key, "HttpGetAsync") == 0)
                 return http::HttpGet(L);
+            if (strcmp(key, "HttpPost") == 0)
+                return http::HttpPost(L);
         }
-        
+
         if (original_namecall)
             return original_namecall(L);
         return 0;
