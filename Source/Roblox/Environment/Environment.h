@@ -77,18 +77,12 @@ namespace env
         if (lua_isstring(L, 2)) {
             const char* key = lua_tostring(L, 2);
 
-            if (key && strcmp(key, "HttpGet") == 0)
-            {
-                lua_pushcfunction(L, http::HttpGet, "HttpGet");
-                return 1;
-            }
-            if (key && strcmp(key, "HttpGetAsync") == 0)
-            {
-                lua_pushcfunction(L, http::HttpGet, "HttpGetAsync");
-                return 1;
-            }
+            // HttpGet/HttpGetAsync are intercepted via namecall_hook so they
+            // can override Roblox's built-in HttpGet. Don't add them as index
+            // values — that would shadow Roblox's built-in HttpGet which returns
+            // a Roblox instance instead of a string.
         }
-        
+
         if (original_index)
             return original_index(L);
         return 0;
