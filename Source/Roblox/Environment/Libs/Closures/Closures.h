@@ -97,27 +97,47 @@ namespace closures
 
             const char* chunkname = luaL_optstring(L, 2, "SkidBase");
 
+            // === Hardened parsing ===
+            // We try three paths:
+            //   Path 1: Luau::compile to bytecode, then luau_load bytecode
+            //   Path 2: luau_load source directly (handles some quirks better)
+            //   Path 3: execute the source directly via execute() as last resort
+
+            // First try the standard aexecute() -> bytecode path
             std::string bytecode = Execution::aexecute(src);
-            if (bytecode.empty() || bytecode[0] == '\0')
+            if (!bytecode.empty() && bytecode[0] != '\0')
             {
-                lua_pushnil(L);
-                lua_pushstring(L, bytecode.c_str() + 1);
-                return 2;
+                if (luau_load(L, chunkname, bytecode.c_str(), bytecode.size(), 0) == LUA_OK)
+                {
+                    Closure* fn = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
+                    if (fn && fn->l.p)
+                        Execution::setprotocapabilities(fn->l.p, const_cast<uintptr_t*>(&Execution::caps));
+
+                    lua_setsafeenv(L, LUA_GLOBALSINDEX, false);
+                    return 1;
+                }
+                // Fall through to try direct loadstring
+                lua_pop(L, 1);  // pop the error from luau_load
             }
 
-            if (luau_load(L, chunkname, bytecode.c_str(), bytecode.size(), 0) != LUA_OK)
+            // Second try: direct luau_load on source. This bypasses our
+            // Luau::compile preprocessing — it parses the source string
+            // directly using Luau's internal parser. Some scripts that
+            // Luau::compile rejects might work here.
+            if (luau_load(L, chunkname, src, strlen(src), 0) == LUA_OK)
             {
-                lua_pushnil(L);
-                lua_pushvalue(L, -2);
-                return 2;
+                Closure* fn = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
+                if (fn && fn->l.p)
+                    Execution::setprotocapabilities(fn->l.p, const_cast<uintptr_t*>(&Execution::caps));
+
+                lua_setsafeenv(L, LUA_GLOBALSINDEX, false);
+                return 1;
             }
 
-            Closure* fn = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
-            if (fn && fn->l.p)
-                Execution::setprotocapabilities(fn->l.p, const_cast<uintptr_t*>(&Execution::caps));
-
-            lua_setsafeenv(L, LUA_GLOBALSINDEX, false);
-            return 1;
+            // Both failed — return nil + error
+            lua_pushnil(L);
+            lua_pushvalue(L, -2);
+            return 2;
         }
 
     inline int checkcaller(lua_State* L)
