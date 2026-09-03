@@ -251,7 +251,40 @@ namespace env
         // game's metatable __index patch below (in the same Register()
         // function). The standalone userdata metatable code was removed.
 
+        // === Lua 5.1 compatibility shims ===
+        // Luau removed getfenv/setfenv. The sUNC test uses them.
+        // Provide getfenv that returns _G, and setfenv that returns the first arg.
+        lua_pushcfunction(L, [](lua_State* L) -> int {
+            if (lua_gettop(L) == 0) { lua_pushvalue(L, LUA_GLOBALSINDEX); return 1; }
+            luaL_error(L, "getfenv: argument must be omitted or 0");
+            return 0;
+        }, "getfenv");
+        lua_setglobal(L, "getfenv");
+
+        lua_pushcfunction(L, [](lua_State* L) -> int {
+            // setfenv(f, table) -> table — just return the table (no-op compat)
+            if (lua_istable(L, 2)) { lua_pushvalue(L, 2); return 1; }
+            luaL_error(L, "setfenv: expected table");
+            return 0;
+        }, "setfenv");
+        lua_setglobal(L, "setfenv");
+
+        // unpack(table, [i, j]) — Lua 5.1 table.unpack compatibility
+        lua_pushcfunction(L, [](lua_State* L) -> int {
+            int i = luaL_optinteger(L, 2, 1);
+            int j = luaL_optinteger(L, 3, lua_objlen(L, 1));
+            int n = 0;
+            for (; i <= j; i++) {
+                lua_rawgeti(L, 1, i);
+                if (lua_isnil(L, -1)) { lua_pop(L, 1); break; }
+                n++;
+            }
+            return n;
+        }, "unpack");
+        lua_setglobal(L, "unpack");
+
         // === Input ===
+
         lua_pushcfunction(L, inp::keypress, "keypress");
         lua_setglobal(L, "keypress");
         lua_pushcfunction(L, inp::keyrelease, "keyrelease");
