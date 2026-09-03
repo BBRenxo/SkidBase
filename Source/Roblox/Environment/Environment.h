@@ -247,52 +247,9 @@ namespace env
         lua_pushcfunction(L, http::HttpPost, "HttpPost");
         lua_setglobal(L, "HttpPost");
 
-        // === Override game:HttpGet / game:HttpGetAsync ===
-        // Roblox's built-in HttpGet method returns an Instance (HttpRequest).
-        // To make game:HttpGet(url) actually return a string, we need to
-        // explicitly assign our HttpGet function onto the game userdata's
-        // metatable __index so the colon syntax invokes OUR function.
-        //
-        // Roblox Instance __index chain finds the built-in method BEFORE
-        // our namecall_hook fires. So we must put our function on the
-        // metatable __index directly.
-        lua_getglobal(L, "game");
-        if (lua_isuserdata(L, -1)) {
-            // Get metatable
-            if (lua_getmetatable(L, -1)) {
-                // Get __index field
-                lua_getfield(L, -1, "__index");
-                if (lua_isnil(L, -1)) {
-                    // No __index yet — create a table with our HttpGet
-                    lua_pop(L, 1);
-                    lua_createtable(L, 0, 4);
-                    lua_pushcfunction(L, http::HttpGet, "HttpGet");
-                    lua_setfield(L, -2, "HttpGet");
-                    lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
-                    lua_setfield(L, -2, "HttpGetAsync");
-                    lua_pushcfunction(L, http::HttpPost, "HttpPost");
-                    lua_setfield(L, -2, "HttpPost");
-                    lua_pushcfunction(L, http::request, "request");
-                    lua_setfield(L, -2, "request");
-                    lua_setfield(L, -2, "__index");
-                } else if (lua_istable(L, -1)) {
-                    // __index exists — add our HttpGet to it
-                    lua_pushcfunction(L, http::HttpGet, "HttpGet");
-                    lua_setfield(L, -2, "HttpGet");
-                    lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
-                    lua_setfield(L, -2, "HttpGetAsync");
-                    lua_pushcfunction(L, http::HttpPost, "HttpPost");
-                    lua_setfield(L, -2, "HttpPost");
-                    lua_pushcfunction(L, http::request, "request");
-                    lua_setfield(L, -2, "request");
-                    lua_pop(L, 1); // pop __index table
-                } else {
-                    lua_pop(L, 1); // pop __index (not table)
-                }
-                lua_pop(L, 1); // pop metatable
-            }
-        }
-        lua_pop(L, 1); // pop game
+        // Note: HttpGet/HttpGetAsync/HttpPost are now overridden via the
+        // game's metatable __index patch below (in the same Register()
+        // function). The standalone userdata metatable code was removed.
 
         // === Input ===
         lua_pushcfunction(L, inp::keypress, "keypress");
@@ -410,13 +367,31 @@ namespace env
 
         if (lua_istable(L, -1) || lua_isuserdata(L, -1))
         {
+            // Patch __index on game's metatable so game:HttpGet(url)
+            // returns our function instead of Roblox's HttpRequest instance.
+            // game's __index can be either a function (Lua-side metamethod)
+            // OR a table (Roblox-side property lookup). Handle both.
             if (luaL_getmetafield(L, -1, "__index"))
             {
                 if (lua_type(L, -1) == LUA_TFUNCTION)
                 {
+                    // __index is a function — wrap it with our hook
                     Closure* cl = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
                     original_index = cl->c.f;
                     cl->c.f = index_hook;
+                }
+                else if (lua_istable(L, -1))
+                {
+                    // __index is a table — set our HttpGet directly on it
+                    // so it gets found BEFORE any built-in property
+                    lua_pushcfunction(L, http::HttpGet, "HttpGet");
+                    lua_setfield(L, -2, "HttpGet");
+                    lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
+                    lua_setfield(L, -2, "HttpGetAsync");
+                    lua_pushcfunction(L, http::HttpPost, "HttpPost");
+                    lua_setfield(L, -2, "HttpPost");
+                    lua_pushcfunction(L, http::request, "request");
+                    lua_setfield(L, -2, "request");
                 }
                 lua_pop(L, 1);
             }
