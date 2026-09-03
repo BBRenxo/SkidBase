@@ -55,6 +55,11 @@ namespace net {
                                         WINHTTP_ADDREQ_FLAG_ADD);
             }
 
+            // Force no compression so WinHTTP returns raw bytes
+            WinHttpAddRequestHeaders(hRequest, L"Accept-Encoding: identity",
+                                    (DWORD)wcslen(L"Accept-Encoding: identity"),
+                                    WINHTTP_ADDREQ_FLAG_ADD);
+
             if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                                     WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
                 WinHttpCloseHandle(hRequest);
