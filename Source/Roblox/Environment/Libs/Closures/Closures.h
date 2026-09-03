@@ -17,33 +17,88 @@ bool isitourskidthread(lua_State* L);
 namespace closures
 {
     inline int loadstring(lua_State* L)
-    {
-        luaL_checktype(L, 1, LUA_TSTRING);
-        const char* src = lua_tostring(L, 1);
-        const char* chunkname = luaL_optstring(L, 2, "SkidBase");
-
-        std::string bytecode = Execution::aexecute(src);
-        if (bytecode.empty() || bytecode[0] == '\0')
         {
-            lua_pushnil(L);
-            lua_pushstring(L, bytecode.c_str() + 1);
-            return 2;
+            // Accept either a string or an Instance with a string property.
+            // scripts call loadstring(game:HttpGet(url)) and game:HttpGet returns
+            // an HttpRequest Instance. We can't always replace game:HttpGet with
+            // our HttpGet, so handle it here too.
+            const char* src = nullptr;
+            std::string stringBuf;
+
+            if (lua_isstring(L, 1))
+            {
+                src = lua_tostring(L, 1);
+            }
+            else if (lua_isuserdata(L, 1))
+            {
+                // Try to call :GetString() or read .Source on the Instance.
+                lua_getfield(L, 1, "GetString");
+                if (lua_isfunction(L, -1))
+                {
+                    lua_pushvalue(L, 1);
+                    if (lua_pcall(L, 1, 1, 0) == LUA_OK && lua_isstring(L, -1))
+                    {
+                        stringBuf = lua_tostring(L, -1);
+                        src = stringBuf.c_str();
+                    }
+                    lua_pop(L, 1);
+                }
+                if (!src)
+                {
+                    lua_getfield(L, 1, "Source");
+                    if (lua_isstring(L, -1))
+                    {
+                        stringBuf = lua_tostring(L, -1);
+                        src = stringBuf.c_str();
+                    }
+                    lua_pop(L, 1);
+                }
+                if (!src)
+                {
+                    lua_getfield(L, 1, "Body");
+                    if (lua_isstring(L, -1))
+                    {
+                        stringBuf = lua_tostring(L, -1);
+                        src = stringBuf.c_str();
+                    }
+                    lua_pop(L, 1);
+                }
+                if (!src)
+                {
+                    luaL_error(L, "loadstring: argument 1 has no string representation");
+                    return 0;
+                }
+            }
+            else
+            {
+                luaL_checktype(L, 1, LUA_TSTRING);
+                return 0;
+            }
+
+            const char* chunkname = luaL_optstring(L, 2, "SkidBase");
+
+            std::string bytecode = Execution::aexecute(src);
+            if (bytecode.empty() || bytecode[0] == '\0')
+            {
+                lua_pushnil(L);
+                lua_pushstring(L, bytecode.c_str() + 1);
+                return 2;
+            }
+
+            if (luau_load(L, chunkname, bytecode.c_str(), bytecode.size(), 0) != LUA_OK)
+            {
+                lua_pushnil(L);
+                lua_pushvalue(L, -2);
+                return 2;
+            }
+
+            Closure* fn = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
+            if (fn && fn->l.p)
+                Execution::setprotocapabilities(fn->l.p, const_cast<uintptr_t*>(&Execution::caps));
+
+            lua_setsafeenv(L, LUA_GLOBALSINDEX, false);
+            return 1;
         }
-
-        if (luau_load(L, chunkname, bytecode.c_str(), bytecode.size(), 0) != LUA_OK)
-        {
-            lua_pushnil(L);
-            lua_pushvalue(L, -2);
-            return 2;
-        }
-
-        Closure* fn = clvalue(const_cast<TValue*>(luaA_toobject(L, -1)));
-        if (fn && fn->l.p)
-            Execution::setprotocapabilities(fn->l.p, const_cast<uintptr_t*>(&Execution::caps));
-
-        lua_setsafeenv(L, LUA_GLOBALSINDEX, false);
-        return 1;
-    }
 
     inline int checkcaller(lua_State* L)
     {
