@@ -77,7 +77,12 @@ namespace http
         net::Response resp = net::get(url);
         if (!resp.success) {
             lua_pushnil(L);
-            lua_pushstring(L, "HTTP request failed");
+            lua_pushstring(L, ("HTTP request failed: status=" + std::to_string(resp.status_code) + " body_len=" + std::to_string(resp.body.size())).c_str());
+            return 2;
+        }
+        if (resp.body.empty()) {
+            lua_pushnil(L);
+            lua_pushstring(L, ("HTTP request returned empty body, status=" + std::to_string(resp.status_code)).c_str());
             return 2;
         }
         lua_pushlstring(L, resp.body.data(), resp.body.size());

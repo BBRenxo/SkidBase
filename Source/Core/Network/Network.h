@@ -32,7 +32,7 @@ namespace net {
         std::wstring path(uc.lpszUrlPath, uc.dwUrlPathLength);
         bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
 
-        HINTERNET hSession = WinHttpOpen(L"SkidBase/1.0",
+        HINTERNET hSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                                         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                         WINHTTP_NO_PROXY_NAME,
                                         WINHTTP_NO_PROXY_BYPASS, 0);
@@ -110,7 +110,7 @@ namespace net {
         std::wstring path(uc.lpszUrlPath, uc.dwUrlPathLength);
         bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
 
-        HINTERNET hSession = WinHttpOpen(L"SkidBase/1.0",
+        HINTERNET hSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
                                         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                         WINHTTP_NO_PROXY_NAME,
                                         WINHTTP_NO_PROXY_BYPASS, 0);
