@@ -11,8 +11,11 @@ namespace Main {
         return krah() + offset;
     }
 
+    // Updated Sep 3 18:01 vs fresh roblox-dumper 3.6 dump against PID 8872
+    // Print moved +0x21070 from old value
+    // FakeDataModel moved +0x7B9E0 from old value
     namespace Functions {
-        inline const uintptr_t Print = Rebase(0x1c68fe0);
+        inline const uintptr_t Print = Rebase(0x1c8a050);
         inline const uintptr_t GetGlobalState = Rebase(0x402B3C0);
         inline const uintptr_t LuauExecute = Rebase(0x26bda30);
         inline const uintptr_t LuaDThrow = Rebase(0x26adad0);
@@ -20,7 +23,7 @@ namespace Main {
     }
 
     namespace Miscellaneous {
-        inline const uintptr_t FakeDatamodelPOINTER = Rebase(0x8ca9cc8);
+        inline const uintptr_t FakeDatamodelPOINTER = Rebase(0x8d22868);
         inline const uintptr_t LuaNil = Rebase(0x62f7418);
         inline const uintptr_t LuaDummy = Rebase(0x62f6ec8);
         inline const uintptr_t TargetFPS = Rebase(0x80993c8);
