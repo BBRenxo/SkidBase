@@ -231,6 +231,24 @@ namespace env
         lua_pushcfunction(L, http::HttpPost, "HttpPost");
         lua_setglobal(L, "HttpPost");
 
+        // === Override game:HttpGet / game:HttpGetAsync ===
+        // Roblox's built-in HttpGet method returns an Instance (HttpRequest).
+        // To make game:HttpGet(url) actually return a string, we need to
+        // explicitly assign our HttpGet function onto the global game table
+        // so the colon syntax invokes OUR function.
+        lua_getglobal(L, "game");
+        if (lua_istable(L, -1)) {
+            lua_pushcfunction(L, http::HttpGet, "HttpGet");
+            lua_setfield(L, -2, "HttpGet");
+            lua_pushcfunction(L, http::HttpGetAsync, "HttpGetAsync");
+            lua_setfield(L, -2, "HttpGetAsync");
+            lua_pushcfunction(L, http::HttpPost, "HttpPost");
+            lua_setfield(L, -2, "HttpPost");
+            lua_pushcfunction(L, http::request, "request");
+            lua_setfield(L, -2, "request");
+        }
+        lua_pop(L, 1);
+
         // === Input ===
         lua_pushcfunction(L, inp::keypress, "keypress");
         lua_setglobal(L, "keypress");
